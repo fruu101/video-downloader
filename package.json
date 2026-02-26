@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "postinstall": "node scripts/install-yt-dlp.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

@@ -63,10 +63,6 @@ export default function Home() {
   const [selectedFormat, setSelectedFormat] = useState<string | null>(null)
   const [downloadMode, setDownloadMode] = useState<"video" | "audio">("video")
   const [downloading, setDownloading] = useState(false)
-  const [downloadProgress, setDownloadProgress] = useState(0)
-  const [downloadPhase, setDownloadPhase] = useState<"idle" | "downloading" | "merging" | "saving" | "done">("idle")
-  const [downloadSpeed, setDownloadSpeed] = useState("")
-  const [downloadEta, setDownloadEta] = useState("")
 
   const handlePaste = async () => {
     try {
@@ -114,94 +110,32 @@ export default function Home() {
     if (!videoInfo) return
 
     setDownloading(true)
-    setDownloadProgress(0)
-    setDownloadPhase("downloading")
-    setDownloadSpeed("")
-    setDownloadEta("")
     setError(null)
 
     try {
-      const startRes = await fetch("/api/download/start", {
+      const res = await fetch("/api/download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           url: url.trim(),
           formatId: downloadMode === "video" ? selectedFormat : null,
-          filename: videoInfo.title,
           audioOnly: downloadMode === "audio",
         }),
       })
 
-      const startData = await startRes.json()
-      if (!startRes.ok || !startData.success) {
-        setError(startData.error || "Failed to start download")
-        setDownloadPhase("idle")
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        setError(data.error || "Failed to get download link")
         setDownloading(false)
         return
       }
 
-      const { id, filename } = startData
-
-      await new Promise<void>((resolve, reject) => {
-        const eventSource = new EventSource(`/api/download/progress?id=${id}`)
-
-        eventSource.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data)
-
-            if (data.status === "downloading") {
-              setDownloadPhase("downloading")
-              setDownloadProgress(Math.round(data.progress || 0))
-              if (data.speed) setDownloadSpeed(data.speed)
-              if (data.eta) setDownloadEta(data.eta)
-            } else if (data.status === "merging") {
-              setDownloadPhase("merging")
-              setDownloadProgress(100)
-              setDownloadSpeed("")
-              setDownloadEta("")
-            } else if (data.status === "complete") {
-              setDownloadPhase("saving")
-              setDownloadProgress(100)
-              eventSource.close()
-              resolve()
-            } else if (data.status === "error") {
-              eventSource.close()
-              reject(new Error(data.error || "Download failed"))
-            }
-          } catch {
-            // Ignore parse errors
-          }
-        }
-
-        eventSource.onerror = () => {
-          eventSource.close()
-          reject(new Error("Connection lost"))
-        }
-      })
-
-      const fileUrl = `/api/download/file?id=${id}&filename=${encodeURIComponent(filename)}`
-      const a = document.createElement("a")
-      a.href = fileUrl
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-
-      setDownloadPhase("done")
-      setDownloadProgress(100)
-
-      setTimeout(() => {
-        setDownloading(false)
-        setDownloadPhase("idle")
-        setDownloadProgress(0)
-        setDownloadSpeed("")
-        setDownloadEta("")
-      }, 2000)
-    } catch (err: any) {
-      setError(err.message || "Download failed. Please try again.")
+      // Open direct download URL in new tab
+      window.open(data.downloadUrl, "_blank")
+    } catch {
+      setError("Download failed. Please try again.")
+    } finally {
       setDownloading(false)
-      setDownloadPhase("idle")
-      setDownloadProgress(0)
     }
   }
 
@@ -402,44 +336,18 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* Download Button & Progress */}
-                  {downloading ? (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2">
-                          {downloadPhase === "done" ? (
-                            <><Check className="h-4 w-4 text-[var(--success)]" /><span className="text-[var(--success)]">Download complete!</span></>
-                          ) : downloadPhase === "merging" ? (
-                            <><Loader2 className="h-4 w-4 animate-spin text-[var(--accent-light)]" /><span>Merging video &amp; audio...</span></>
-                          ) : downloadPhase === "saving" ? (
-                            <><Loader2 className="h-4 w-4 animate-spin text-[var(--accent-light)]" /><span>Saving file...</span></>
-                          ) : (
-                            <><Download className="h-4 w-4 text-[var(--accent-light)]" /><span>Downloading...</span></>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 font-mono text-xs text-[var(--muted)]">
-                          {downloadPhase === "downloading" && downloadSpeed && <span>{downloadSpeed}</span>}
-                          {downloadPhase === "downloading" && downloadEta && <span>ETA {downloadEta}</span>}
-                          <span>{downloadProgress}%</span>
-                        </div>
-                      </div>
-                      <div className="w-full h-2.5 rounded-full bg-white/5 overflow-hidden">
-                        {downloadPhase === "merging" || downloadPhase === "saving" ? (
-                          <div className="h-full rounded-full bg-gradient-to-r from-violet-600 to-purple-500 animate-pulse-glow" style={{ width: "100%" }} />
-                        ) : (
-                          <div className="h-full rounded-full bg-gradient-to-r from-violet-600 to-purple-500 transition-all duration-300 ease-out" style={{ width: `${downloadProgress}%` }} />
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={handleDownload}
-                      className="w-full h-12 rounded-xl bg-gradient-to-r from-violet-600 to-purple-700 text-white font-semibold text-sm hover:from-violet-500 hover:to-purple-600 transition-all flex items-center justify-center gap-2"
-                    >
-                      <Download className="h-5 w-5" />
-                      Download {downloadMode === "video" ? "Video" : "Audio"}
-                    </button>
-                  )}
+                  {/* Download Button */}
+                  <button
+                    onClick={handleDownload}
+                    disabled={downloading}
+                    className="w-full h-12 rounded-xl bg-gradient-to-r from-violet-600 to-purple-700 text-white font-semibold text-sm hover:from-violet-500 hover:to-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                  >
+                    {downloading ? (
+                      <><Loader2 className="h-5 w-5 animate-spin" /> Getting download link...</>
+                    ) : (
+                      <><Download className="h-5 w-5" /> Download {downloadMode === "video" ? "Video" : "Audio"}</>
+                    )}
+                  </button>
                 </div>
 
                 {/* Ad: Rectangle sidebar */}

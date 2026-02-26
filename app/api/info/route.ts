@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { execFile } from "child_process"
 import { promisify } from "util"
+import { YTDLP_PATH } from "@/lib/yt-dlp"
 
 const execFileAsync = promisify(execFile)
+
+export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,12 +23,12 @@ export async function POST(req: NextRequest) {
     }
 
     // Use yt-dlp to get video info
-    const { stdout } = await execFileAsync("yt-dlp", [
+    const { stdout } = await execFileAsync(YTDLP_PATH, [
       "--dump-json",
       "--no-download",
       "--no-warnings",
       url,
-    ], { timeout: 30000, maxBuffer: 10 * 1024 * 1024 })
+    ], { timeout: 55000, maxBuffer: 10 * 1024 * 1024 })
 
     const info = JSON.parse(stdout)
 
@@ -54,7 +57,8 @@ export async function POST(req: NextRequest) {
       const hasVideo = f.vcodec && f.vcodec !== "none"
       const hasAudio = f.acodec && f.acodec !== "none"
 
-      if (hasVideo) {
+      // Only include formats with both audio and video (no merging needed on serverless)
+      if (hasVideo && hasAudio) {
         const height = f.height || 0
         let quality = "Unknown"
         if (height >= 2160) quality = "2160p (4K)"
@@ -80,9 +84,47 @@ export async function POST(req: NextRequest) {
             fps: f.fps || null,
             vcodec: f.vcodec || "",
             acodec: f.acodec || "",
-            hasAudio,
+            hasAudio: true,
             hasVideo: true,
           })
+        }
+      }
+    }
+
+    // If no combined formats found, fall back to showing video-only formats
+    if (videoFormats.length === 0) {
+      for (const f of sortedFormats) {
+        const hasVideo = f.vcodec && f.vcodec !== "none"
+        if (hasVideo) {
+          const height = f.height || 0
+          let quality = "Unknown"
+          if (height >= 2160) quality = "2160p (4K)"
+          else if (height >= 1440) quality = "1440p (2K)"
+          else if (height >= 1080) quality = "1080p (Full HD)"
+          else if (height >= 720) quality = "720p (HD)"
+          else if (height >= 480) quality = "480p"
+          else if (height >= 360) quality = "360p"
+          else if (height >= 240) quality = "240p"
+          else if (height > 0) quality = `${height}p`
+
+          const ext = f.ext || "mp4"
+          const key = `${quality}-${ext}`
+
+          if (!seenQualities.has(key)) {
+            seenQualities.add(key)
+            videoFormats.push({
+              formatId: f.format_id,
+              quality,
+              ext,
+              filesize: f.filesize || f.filesize_approx || null,
+              resolution: f.resolution || `${f.width || "?"}x${f.height || "?"}`,
+              fps: f.fps || null,
+              vcodec: f.vcodec || "",
+              acodec: f.acodec || "",
+              hasAudio: !!(f.acodec && f.acodec !== "none"),
+              hasVideo: true,
+            })
+          }
         }
       }
     }
