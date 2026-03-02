@@ -31,6 +31,25 @@ export async function getCookieFile(url?: string): Promise<string | null> {
   return cookiePath
 }
 
+/**
+ * Clean YouTube URLs by removing playlist params that can cause issues.
+ */
+export function cleanVideoUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    const hostname = parsed.hostname.toLowerCase()
+
+    if (hostname.includes("youtube.com") && parsed.searchParams.has("v")) {
+      const videoId = parsed.searchParams.get("v")
+      return `https://www.youtube.com/watch?v=${videoId}`
+    }
+
+    return url
+  } catch {
+    return url
+  }
+}
+
 export async function cleanupCookieFile(path: string | null) {
   if (path) {
     await unlink(path).catch(() => {})

@@ -6,7 +6,7 @@ import { join, basename } from "path"
 import { randomUUID } from "crypto"
 import { tmpdir } from "os"
 import { YTDLP_PATH } from "@/lib/yt-dlp"
-import { getCookieFile, cleanupCookieFile } from "@/lib/cookies"
+import { getCookieFile, cleanupCookieFile, cleanVideoUrl } from "@/lib/cookies"
 
 const execFileAsync = promisify(execFile)
 
@@ -30,7 +30,8 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Invalid URL" }, { status: 400 })
     }
 
-    cookiePath = await getCookieFile(url)
+    const cleanUrl = cleanVideoUrl(url)
+    cookiePath = await getCookieFile(cleanUrl)
 
     const args: string[] = [
       "-o", `${tempBase}.%(ext)s`,
@@ -46,7 +47,7 @@ export async function POST(req: NextRequest) {
       args.push("-f", "best")
     }
 
-    args.push(url)
+    args.push(cleanUrl)
 
     await execFileAsync(YTDLP_PATH, args, { timeout: 55000 })
 

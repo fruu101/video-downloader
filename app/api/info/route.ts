@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { execFile } from "child_process"
 import { promisify } from "util"
 import { YTDLP_PATH } from "@/lib/yt-dlp"
-import { getCookieFile, cleanupCookieFile } from "@/lib/cookies"
+import { getCookieFile, cleanupCookieFile, cleanVideoUrl } from "@/lib/cookies"
 
 const execFileAsync = promisify(execFile)
 
@@ -25,15 +25,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid URL format" }, { status: 400 })
     }
 
+    const cleanUrl = cleanVideoUrl(url)
+
     // Use cookies for sites that require auth (Instagram etc.)
-    cookiePath = await getCookieFile(url)
+    cookiePath = await getCookieFile(cleanUrl)
 
     const args = [
       "--dump-json",
       "--no-download",
       "--no-warnings",
       ...(cookiePath ? ["--cookies", cookiePath] : []),
-      url,
+      cleanUrl,
     ]
 
     // Use yt-dlp to get video info
