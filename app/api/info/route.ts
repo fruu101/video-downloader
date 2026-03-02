@@ -35,15 +35,9 @@ export async function POST(req: NextRequest) {
       "--no-download",
       "--no-warnings",
       "--no-check-certificates",
-      // When using cookies, use default web client (cookies are from browser)
-      // Without cookies, try ios client to bypass bot detection
-      ...(cookiePath
-        ? ["--cookies", cookiePath]
-        : [
-            "--extractor-args", "youtube:player_client=ios,web_creator",
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-          ]
-      ),
+      "--extractor-args", "youtube:player_client=web_creator,mweb",
+      "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      ...(cookiePath ? ["--cookies", cookiePath] : []),
       cleanUrl,
     ]
 
