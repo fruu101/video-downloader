@@ -35,7 +35,8 @@ export async function POST(req: NextRequest) {
       "--no-download",
       "--no-warnings",
       "--no-check-certificates",
-      "--extractor-args", "youtube:player_client=web",
+      "--extractor-args", "youtube:player_client=ios,web_creator",
+      "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       ...(cookiePath ? ["--cookies", cookiePath] : []),
       cleanUrl,
     ]

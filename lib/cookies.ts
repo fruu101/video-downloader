@@ -3,32 +3,39 @@ import { join } from "path"
 import { tmpdir } from "os"
 import { randomUUID } from "crypto"
 
-// Sites that need cookie-based auth
-const COOKIE_DOMAINS = ["instagram.com", "facebook.com", "fb.watch"]
+// Map of cookie env vars to their domains
+const COOKIE_CONFIGS = [
+  { envVar: "INSTAGRAM_COOKIES", domains: ["instagram.com", "facebook.com", "fb.watch"] },
+  { envVar: "YOUTUBE_COOKIES", domains: ["youtube.com", "youtu.be", "googlevideo.com"] },
+]
 
 /**
- * If INSTAGRAM_COOKIES env var is set AND the URL is for a site that needs cookies,
- * writes cookies to a temp file and returns the path.
- * Returns null if no cookies are configured or URL doesn't need them.
+ * Returns a temp cookie file path if cookies are configured for the given URL.
+ * Checks INSTAGRAM_COOKIES for Instagram/Facebook and YOUTUBE_COOKIES for YouTube.
  */
 export async function getCookieFile(url?: string): Promise<string | null> {
-  const cookies = process.env.INSTAGRAM_COOKIES
-  if (!cookies) return null
+  if (!url) return null
 
-  // Only use cookies for sites that require them
-  if (url) {
-    try {
-      const hostname = new URL(url).hostname.toLowerCase()
-      const needsCookies = COOKIE_DOMAINS.some(d => hostname.includes(d))
-      if (!needsCookies) return null
-    } catch {
-      return null
+  let hostname: string
+  try {
+    hostname = new URL(url).hostname.toLowerCase()
+  } catch {
+    return null
+  }
+
+  for (const config of COOKIE_CONFIGS) {
+    const cookies = process.env[config.envVar]
+    if (!cookies) continue
+
+    const matches = config.domains.some(d => hostname.includes(d))
+    if (matches) {
+      const cookiePath = join(tmpdir(), `cookies-${randomUUID()}.txt`)
+      await writeFile(cookiePath, cookies, "utf-8")
+      return cookiePath
     }
   }
 
-  const cookiePath = join(tmpdir(), `cookies-${randomUUID()}.txt`)
-  await writeFile(cookiePath, cookies, "utf-8")
-  return cookiePath
+  return null
 }
 
 /**
