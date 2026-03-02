@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Invalid URL" }, { status: 400 })
     }
 
-    cookiePath = await getCookieFile()
+    cookiePath = await getCookieFile(url)
 
     const args: string[] = [
       "-o", `${tempBase}.%(ext)s`,

@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Use cookies for sites that require auth (Instagram etc.)
-    cookiePath = await getCookieFile()
+    cookiePath = await getCookieFile(url)
 
     const args = [
       "--dump-json",
