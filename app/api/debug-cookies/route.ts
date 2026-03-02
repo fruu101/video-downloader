@@ -7,8 +7,9 @@ import { getCookieFile, cleanupCookieFile } from "@/lib/cookies"
 
 const execFileAsync = promisify(execFile)
 
-export async function GET() {
-  const testUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url)
+  const testUrl = searchParams.get("url") || "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
   let cookiePath: string | null = null
 
   try {
