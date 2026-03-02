@@ -73,7 +73,10 @@ export function Footer() {
             &copy; {new Date().getFullYear()} VidGrab. All rights reserved.
           </p>
           <p className="text-xs text-[var(--muted)]">
-            For personal use only. Respect copyright and content creators.
+            Built by{" "}
+            <a href="https://github.com/fruu101" target="_blank" rel="noopener noreferrer" className="text-violet-400 hover:text-violet-300 transition-colors">
+              Farhan Murtaza
+            </a>
           </p>
         </div>
       </div>

@@ -43,10 +43,6 @@ export default function AboutPage() {
               available resolutions including 360p, 480p, 720p, 1080p, and even 4K.
             </li>
             <li>
-              <strong className="text-white">MP3 Audio Extraction</strong> — Convert any video to
-              high-quality MP3 audio with a single click.
-            </li>
-            <li>
               <strong className="text-white">Real-Time Progress</strong> — Watch your download
               progress in real time with speed and ETA indicators.
             </li>
@@ -78,6 +74,27 @@ export default function AboutPage() {
             Please respect copyright laws and the terms of service of the platforms you download
             from. Do not use VidGrab to download copyrighted content without permission from the
             content owner.
+          </p>
+        </div>
+
+        <div className="bg-[var(--card)] border border-[var(--card-border)] rounded-xl p-6 space-y-4">
+          <h2 className="text-2xl font-semibold text-white">Built By</h2>
+          <p>
+            VidGrab was designed and built by{" "}
+            <a
+              href="https://github.com/fruu101"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-violet-400 hover:text-violet-300 underline underline-offset-2 transition-colors"
+            >
+              Farhan Murtaza
+            </a>
+            {" "}— a developer passionate about creating useful, free tools for the web.
+            If you have any feedback, feature requests, or just want to say hi, feel free
+            to reach out through the{" "}
+            <a href="/contact" className="text-violet-400 hover:text-violet-300 underline underline-offset-2 transition-colors">
+              contact page
+            </a>.
           </p>
         </div>
       </div>
