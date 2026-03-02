@@ -161,9 +161,15 @@ export async function POST(req: NextRequest) {
     })
   } catch (error: any) {
     await cleanupCookieFile(cookiePath)
-    console.error("Error fetching video info:", error)
 
     const stderr = error.stderr?.toString() || ""
+    console.error("Error fetching video info:", {
+      message: error.message,
+      stderr: stderr.slice(0, 500),
+      cookieUsed: !!cookiePath,
+      envVarSet: !!process.env.YOUTUBE_COOKIES,
+      envVarLength: process.env.YOUTUBE_COOKIES?.length || 0,
+    })
 
     if (error.message?.includes("is not a valid URL")) {
       return NextResponse.json({ error: "Invalid or unsupported URL" }, { status: 400 })
