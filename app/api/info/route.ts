@@ -34,6 +34,8 @@ export async function POST(req: NextRequest) {
       "--dump-json",
       "--no-download",
       "--no-warnings",
+      "--no-check-certificates",
+      "--extractor-args", "youtube:player_client=web",
       ...(cookiePath ? ["--cookies", cookiePath] : []),
       cleanUrl,
     ]
@@ -174,8 +176,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Video is unavailable or private" }, { status: 400 })
     }
 
+    if (stderr.includes("Sign in to confirm") || stderr.includes("bot")) {
+      return NextResponse.json({ error: "YouTube is blocking this request. Please try again in a moment." }, { status: 400 })
+    }
+
     if (stderr.includes("login") || stderr.includes("cookies") || stderr.includes("empty media response")) {
-      return NextResponse.json({ error: "This platform requires authentication. Instagram and some other sites may not work without cookies configured." }, { status: 400 })
+      // Only show auth error for non-YouTube sites
+      const isYouTube = stderr.includes("youtube") || stderr.includes("youtu.be")
+      return NextResponse.json({
+        error: isYouTube
+          ? "Could not fetch video info. Please try again."
+          : "This platform requires authentication. Instagram and some other sites may not work without cookies configured."
+      }, { status: 400 })
     }
 
     return NextResponse.json(

@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
       "--no-warnings",
       "--no-playlist",
       "--no-check-certificates",
+      "--extractor-args", "youtube:player_client=web",
       ...(cookiePath ? ["--cookies", cookiePath] : []),
     ]
 

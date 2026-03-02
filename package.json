@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "postinstall": "node scripts/install-yt-dlp.mjs",
-    "build": "next build",
+    "build": "node scripts/install-yt-dlp.mjs && next build",
     "start": "next start",
     "lint": "eslint"
   },
