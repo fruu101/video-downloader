@@ -3,6 +3,7 @@ import { execFile } from "child_process"
 import { promisify } from "util"
 import { YTDLP_PATH } from "@/lib/yt-dlp"
 import { getCookieFile, cleanupCookieFile, cleanVideoUrl } from "@/lib/cookies"
+import { getPoToken } from "@/lib/po-token"
 
 const execFileAsync = promisify(execFile)
 
@@ -30,12 +31,22 @@ export async function POST(req: NextRequest) {
     // Use cookies for sites that require auth (Instagram etc.)
     cookiePath = await getCookieFile(cleanUrl)
 
+    // Generate PO token for YouTube (proves request is from a real client)
+    const isYouTube = cleanUrl.includes("youtube.com") || cleanUrl.includes("youtu.be")
+    const poToken = isYouTube ? await getPoToken() : null
+
+    const extractorArgs = isYouTube
+      ? poToken
+        ? `youtube:player_client=web;po_token=web+${poToken.poToken};visitor_data=${poToken.visitorData}`
+        : "youtube:player_client=web_creator,mweb"
+      : undefined
+
     const args = [
       "--dump-json",
       "--no-download",
       "--no-warnings",
       "--no-check-certificates",
-      "--extractor-args", "youtube:player_client=web_creator,mweb",
+      ...(extractorArgs ? ["--extractor-args", extractorArgs] : []),
       "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       ...(cookiePath ? ["--cookies", cookiePath] : []),
       cleanUrl,

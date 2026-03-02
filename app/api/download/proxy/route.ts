@@ -7,6 +7,7 @@ import { randomUUID } from "crypto"
 import { tmpdir } from "os"
 import { YTDLP_PATH } from "@/lib/yt-dlp"
 import { getCookieFile, cleanupCookieFile, cleanVideoUrl } from "@/lib/cookies"
+import { getPoToken } from "@/lib/po-token"
 
 const execFileAsync = promisify(execFile)
 
@@ -33,12 +34,22 @@ export async function POST(req: NextRequest) {
     const cleanUrl = cleanVideoUrl(url)
     cookiePath = await getCookieFile(cleanUrl)
 
+    // Generate PO token for YouTube
+    const isYouTube = cleanUrl.includes("youtube.com") || cleanUrl.includes("youtu.be")
+    const poToken = isYouTube ? await getPoToken() : null
+
+    const extractorArgs = isYouTube
+      ? poToken
+        ? `youtube:player_client=web;po_token=web+${poToken.poToken};visitor_data=${poToken.visitorData}`
+        : "youtube:player_client=web_creator,mweb"
+      : undefined
+
     const args: string[] = [
       "-o", `${tempBase}.%(ext)s`,
       "--no-warnings",
       "--no-playlist",
       "--no-check-certificates",
-      "--extractor-args", "youtube:player_client=web_creator,mweb",
+      ...(extractorArgs ? ["--extractor-args", extractorArgs] : []),
       "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       ...(cookiePath ? ["--cookies", cookiePath] : []),
     ]
