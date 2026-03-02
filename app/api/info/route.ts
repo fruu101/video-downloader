@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from "next/server"
 import { execFile } from "child_process"
 import { promisify } from "util"
 import { YTDLP_PATH } from "@/lib/yt-dlp"
+import { getCookieFile, cleanupCookieFile } from "@/lib/cookies"
 
 const execFileAsync = promisify(execFile)
 
 export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
+  let cookiePath: string | null = null
+
   try {
     const { url } = await req.json()
 
@@ -22,13 +25,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid URL format" }, { status: 400 })
     }
 
-    // Use yt-dlp to get video info
-    const { stdout } = await execFileAsync(YTDLP_PATH, [
+    // Use cookies for sites that require auth (Instagram etc.)
+    cookiePath = await getCookieFile()
+
+    const args = [
       "--dump-json",
       "--no-download",
       "--no-warnings",
+      ...(cookiePath ? ["--cookies", cookiePath] : []),
       url,
-    ], { timeout: 55000, maxBuffer: 10 * 1024 * 1024 })
+    ]
+
+    // Use yt-dlp to get video info
+    const { stdout } = await execFileAsync(YTDLP_PATH, args, { timeout: 55000, maxBuffer: 10 * 1024 * 1024 })
 
     const info = JSON.parse(stdout)
 
@@ -129,6 +138,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    await cleanupCookieFile(cookiePath)
+
     return NextResponse.json({
       success: true,
       data: {
@@ -144,18 +155,25 @@ export async function POST(req: NextRequest) {
       },
     })
   } catch (error: any) {
+    await cleanupCookieFile(cookiePath)
     console.error("Error fetching video info:", error)
+
+    const stderr = error.stderr?.toString() || ""
 
     if (error.message?.includes("is not a valid URL")) {
       return NextResponse.json({ error: "Invalid or unsupported URL" }, { status: 400 })
     }
 
-    if (error.message?.includes("Unsupported URL") || error.stderr?.includes("Unsupported URL")) {
+    if (error.message?.includes("Unsupported URL") || stderr.includes("Unsupported URL")) {
       return NextResponse.json({ error: "This URL is not supported" }, { status: 400 })
     }
 
-    if (error.stderr?.includes("Video unavailable") || error.stderr?.includes("Private video")) {
+    if (stderr.includes("Video unavailable") || stderr.includes("Private video")) {
       return NextResponse.json({ error: "Video is unavailable or private" }, { status: 400 })
+    }
+
+    if (stderr.includes("login") || stderr.includes("cookies") || stderr.includes("empty media response")) {
+      return NextResponse.json({ error: "This platform requires authentication. Instagram and some other sites may not work without cookies configured." }, { status: 400 })
     }
 
     return NextResponse.json(

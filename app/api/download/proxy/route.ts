@@ -6,6 +6,7 @@ import { join, basename } from "path"
 import { randomUUID } from "crypto"
 import { tmpdir } from "os"
 import { YTDLP_PATH } from "@/lib/yt-dlp"
+import { getCookieFile, cleanupCookieFile } from "@/lib/cookies"
 
 const execFileAsync = promisify(execFile)
 
@@ -14,6 +15,7 @@ export const maxDuration = 60
 export async function POST(req: NextRequest) {
   const id = randomUUID()
   const tempBase = join(tmpdir(), `vidgrab-${id}`)
+  let cookiePath: string | null = null
 
   try {
     const { url, formatId, filename } = await req.json()
@@ -28,11 +30,14 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Invalid URL" }, { status: 400 })
     }
 
+    cookiePath = await getCookieFile()
+
     const args: string[] = [
       "-o", `${tempBase}.%(ext)s`,
       "--no-warnings",
       "--no-playlist",
       "--no-check-certificates",
+      ...(cookiePath ? ["--cookies", cookiePath] : []),
     ]
 
     if (formatId) {
@@ -61,6 +66,7 @@ export async function POST(req: NextRequest) {
     // Read file into memory and delete temp file
     const data = await readFile(filePath)
     await unlink(filePath).catch(() => {})
+    await cleanupCookieFile(cookiePath)
 
     const safeName =
       (filename || "video").replace(/[^\w\s\-()[\]]/g, "").trim() || "video"
@@ -74,7 +80,8 @@ export async function POST(req: NextRequest) {
       },
     })
   } catch (error: any) {
-    // Clean up temp file on error
+    // Clean up temp file and cookie file on error
+    await cleanupCookieFile(cookiePath)
     const tmpDir = tmpdir()
     const files = await readdir(tmpDir).catch(() => [])
     const prefix = basename(tempBase)
@@ -92,6 +99,8 @@ export async function POST(req: NextRequest) {
       ? "Video is unavailable or private."
       : stderr.includes("format is not available")
       ? "Selected format is not available for this video."
+      : stderr.includes("login") || stderr.includes("cookies") || stderr.includes("empty media response")
+      ? "This platform requires authentication cookies to download."
       : "Download failed. Try a different quality or URL."
 
     return Response.json({ error: msg }, { status: 400 })
