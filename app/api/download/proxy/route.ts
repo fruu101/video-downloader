@@ -7,7 +7,7 @@ import { randomUUID } from "crypto"
 import { tmpdir } from "os"
 import { YTDLP_PATH } from "@/lib/yt-dlp"
 import { getCookieFile, cleanupCookieFile, cleanVideoUrl } from "@/lib/cookies"
-import { getPoToken } from "@/lib/po-token"
+import { isYouTubeUrl } from "@/lib/youtube"
 
 const execFileAsync = promisify(execFile)
 
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   let cookiePath: string | null = null
 
   try {
-    const { url, formatId, filename } = await req.json()
+    const { url, formatId, filename, downloadUrl } = await req.json()
 
     if (!url) {
       return Response.json({ error: "URL is required" }, { status: 400 })
@@ -31,25 +31,20 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Invalid URL" }, { status: 400 })
     }
 
+    // For YouTube with a direct download URL from youtubei.js, proxy the stream
+    if (isYouTubeUrl(url) && downloadUrl) {
+      return await proxyYouTubeDownload(downloadUrl, filename)
+    }
+
+    // For non-YouTube, use yt-dlp
     const cleanUrl = cleanVideoUrl(url)
     cookiePath = await getCookieFile(cleanUrl)
-
-    // Generate PO token for YouTube
-    const isYouTube = cleanUrl.includes("youtube.com") || cleanUrl.includes("youtu.be")
-    const poToken = isYouTube ? await getPoToken() : null
-
-    const extractorArgs = isYouTube
-      ? poToken
-        ? `youtube:player_client=web;po_token=web+${poToken.poToken};visitor_data=${poToken.visitorData}`
-        : "youtube:player_client=web_creator,mweb"
-      : undefined
 
     const args: string[] = [
       "-o", `${tempBase}.%(ext)s`,
       "--no-warnings",
       "--no-playlist",
       "--no-check-certificates",
-      ...(extractorArgs ? ["--extractor-args", extractorArgs] : []),
       "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       ...(cookiePath ? ["--cookies", cookiePath] : []),
     ]
@@ -64,7 +59,6 @@ export async function POST(req: NextRequest) {
 
     await execFileAsync(YTDLP_PATH, args, { timeout: 55000 })
 
-    // Find the downloaded file (yt-dlp adds the actual extension)
     const tmpDir = tmpdir()
     const files = await readdir(tmpDir)
     const prefix = basename(tempBase)
@@ -77,7 +71,6 @@ export async function POST(req: NextRequest) {
     const filePath = join(tmpDir, downloadedFile)
     const actualExt = downloadedFile.split(".").pop() || "mp4"
 
-    // Read file into memory and delete temp file
     const data = await readFile(filePath)
     await unlink(filePath).catch(() => {})
     await cleanupCookieFile(cookiePath)
@@ -94,7 +87,6 @@ export async function POST(req: NextRequest) {
       },
     })
   } catch (error: any) {
-    // Clean up temp file and cookie file on error
     await cleanupCookieFile(cookiePath)
     const tmpDir = tmpdir()
     const files = await readdir(tmpDir).catch(() => [])
@@ -118,5 +110,37 @@ export async function POST(req: NextRequest) {
       : "Download failed. Try a different quality or URL."
 
     return Response.json({ error: msg }, { status: 400 })
+  }
+}
+
+async function proxyYouTubeDownload(downloadUrl: string, filename?: string) {
+  try {
+    const response = await fetch(downloadUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      },
+    })
+
+    if (!response.ok) {
+      return Response.json({ error: "Failed to download video from YouTube" }, { status: 400 })
+    }
+
+    const contentType = response.headers.get("content-type") || "application/octet-stream"
+    const ext = contentType.includes("webm") ? "webm" : "mp4"
+    const safeName = (filename || "video").replace(/[^\w\s\-()[\]]/g, "").trim() || "video"
+
+    return new Response(response.body, {
+      headers: {
+        "Content-Disposition": `attachment; filename="${encodeURIComponent(safeName)}.${ext}"`,
+        "Content-Type": "application/octet-stream",
+        ...(response.headers.get("content-length")
+          ? { "Content-Length": response.headers.get("content-length")! }
+          : {}),
+        "X-File-Ext": ext,
+      },
+    })
+  } catch (error: any) {
+    console.error("YouTube proxy download error:", error.message)
+    return Response.json({ error: "Failed to download YouTube video." }, { status: 400 })
   }
 }

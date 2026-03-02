@@ -3,7 +3,7 @@ import { execFile } from "child_process"
 import { promisify } from "util"
 import { YTDLP_PATH } from "@/lib/yt-dlp"
 import { getCookieFile, cleanupCookieFile, cleanVideoUrl } from "@/lib/cookies"
-import { getPoToken } from "@/lib/po-token"
+import { getYouTubeInfo, isYouTubeUrl } from "@/lib/youtube"
 
 const execFileAsync = promisify(execFile)
 
@@ -26,38 +26,74 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid URL format" }, { status: 400 })
     }
 
+    // Use YouTube.js for YouTube (bypasses bot detection), yt-dlp for everything else
+    if (isYouTubeUrl(url)) {
+      return await handleYouTube(url)
+    }
+
+    return await handleGeneric(url)
+  } catch (error: any) {
+    await cleanupCookieFile(cookiePath)
+    console.error("Error fetching video info:", error.message)
+
+    return NextResponse.json(
+      { error: "Failed to fetch video info. Make sure the URL is valid and the video is publicly available." },
+      { status: 500 }
+    )
+  }
+}
+
+async function handleYouTube(url: string) {
+  try {
+    const info = await getYouTubeInfo(url)
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        title: info.title,
+        thumbnail: info.thumbnail,
+        duration: info.duration,
+        uploader: info.uploader,
+        platform: info.platform,
+        viewCount: info.viewCount,
+        uploadDate: info.uploadDate,
+        description: info.description,
+        videoFormats: info.videoFormats.map(({ url: _url, ...rest }) => rest),
+        // Store download URLs server-side for the download endpoint
+        _downloadUrls: Object.fromEntries(
+          info.videoFormats.map(f => [f.formatId, f.url])
+        ),
+      },
+    })
+  } catch (error: any) {
+    console.error("YouTube.js error:", error.message)
+    return NextResponse.json(
+      { error: "Could not fetch YouTube video info. The video may be private or unavailable." },
+      { status: 400 }
+    )
+  }
+}
+
+async function handleGeneric(url: string) {
+  let cookiePath: string | null = null
+
+  try {
     const cleanUrl = cleanVideoUrl(url)
-
-    // Use cookies for sites that require auth (Instagram etc.)
     cookiePath = await getCookieFile(cleanUrl)
-
-    // Generate PO token for YouTube (proves request is from a real client)
-    const isYouTube = cleanUrl.includes("youtube.com") || cleanUrl.includes("youtu.be")
-    const poToken = isYouTube ? await getPoToken() : null
-
-    const extractorArgs = isYouTube
-      ? poToken
-        ? `youtube:player_client=web;po_token=web+${poToken.poToken};visitor_data=${poToken.visitorData}`
-        : "youtube:player_client=web_creator,mweb"
-      : undefined
 
     const args = [
       "--dump-json",
       "--no-download",
       "--no-warnings",
       "--no-check-certificates",
-      ...(extractorArgs ? ["--extractor-args", extractorArgs] : []),
       "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       ...(cookiePath ? ["--cookies", cookiePath] : []),
       cleanUrl,
     ]
 
-    // Use yt-dlp to get video info
     const { stdout } = await execFileAsync(YTDLP_PATH, args, { timeout: 55000, maxBuffer: 10 * 1024 * 1024 })
-
     const info = JSON.parse(stdout)
 
-    // Process formats - group by quality and pick best per resolution
     const videoFormats: Array<{
       formatId: string
       quality: string
@@ -73,7 +109,6 @@ export async function POST(req: NextRequest) {
 
     const seenQualities = new Set<string>()
 
-    // Sort formats by quality (height) descending
     const sortedFormats = (info.formats || [])
       .filter((f: any) => f.url || f.manifest_url)
       .sort((a: any, b: any) => (b.height || 0) - (a.height || 0))
@@ -82,7 +117,6 @@ export async function POST(req: NextRequest) {
       const hasVideo = f.vcodec && f.vcodec !== "none"
       const hasAudio = f.acodec && f.acodec !== "none"
 
-      // Only include formats with both audio and video (no merging needed on serverless)
       if (hasVideo && hasAudio) {
         const height = f.height || 0
         let quality = "Unknown"
@@ -116,7 +150,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // If no combined formats found, fall back to showing video-only formats
     if (videoFormats.length === 0) {
       for (const f of sortedFormats) {
         const hasVideo = f.vcodec && f.vcodec !== "none"
@@ -174,17 +207,7 @@ export async function POST(req: NextRequest) {
     await cleanupCookieFile(cookiePath)
 
     const stderr = error.stderr?.toString() || ""
-    console.error("Error fetching video info:", {
-      message: error.message,
-      stderr: stderr.slice(0, 500),
-      cookieUsed: !!cookiePath,
-      envVarSet: !!process.env.YOUTUBE_COOKIES,
-      envVarLength: process.env.YOUTUBE_COOKIES?.length || 0,
-    })
-
-    if (error.message?.includes("is not a valid URL")) {
-      return NextResponse.json({ error: "Invalid or unsupported URL" }, { status: 400 })
-    }
+    console.error("yt-dlp error:", { message: error.message, stderr: stderr.slice(0, 500) })
 
     if (error.message?.includes("Unsupported URL") || stderr.includes("Unsupported URL")) {
       return NextResponse.json({ error: "This URL is not supported" }, { status: 400 })
@@ -194,17 +217,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Video is unavailable or private" }, { status: 400 })
     }
 
-    if (stderr.includes("Sign in to confirm") || stderr.includes("bot")) {
-      return NextResponse.json({ error: "YouTube is blocking this video. Try a different video or use a direct YouTube link (youtu.be)." }, { status: 400 })
-    }
-
     if (stderr.includes("login") || stderr.includes("cookies") || stderr.includes("empty media response")) {
-      // Only show auth error for non-YouTube sites
-      const isYouTube = stderr.includes("youtube") || stderr.includes("youtu.be")
       return NextResponse.json({
-        error: isYouTube
-          ? "Could not fetch video info. Please try again."
-          : "This platform requires authentication. Instagram and some other sites may not work without cookies configured."
+        error: "This platform requires authentication. Instagram and some other sites may not work without cookies configured."
       }, { status: 400 })
     }
 

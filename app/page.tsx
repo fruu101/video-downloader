@@ -61,6 +61,7 @@ export default function Home() {
   const [downloadProgress, setDownloadProgress] = useState(0)
   const [downloadPhase, setDownloadPhase] = useState<"idle" | "downloading" | "merging" | "saving" | "done">("idle")
   const [downloadSpeed, setDownloadSpeed] = useState("")
+  const [downloadUrls, setDownloadUrls] = useState<Record<string, string>>({})
   const [downloadEta, setDownloadEta] = useState("")
 
   const handlePaste = async () => {
@@ -95,6 +96,7 @@ export default function Home() {
       }
 
       setVideoInfo(result.data)
+      setDownloadUrls(result.data._downloadUrls || {})
       if (result.data.videoFormats.length > 0) {
         setSelectedFormat(result.data.videoFormats[0].formatId)
       }
@@ -144,6 +146,7 @@ export default function Home() {
           url: url.trim(),
           formatId: selectedFormat,
           filename: sanitizedTitle,
+          downloadUrl: selectedFormat ? downloadUrls[selectedFormat] : undefined,
         }),
       })
 
