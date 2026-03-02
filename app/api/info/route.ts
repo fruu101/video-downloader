@@ -184,7 +184,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (stderr.includes("Sign in to confirm") || stderr.includes("bot")) {
-      return NextResponse.json({ error: "YouTube is blocking this request. Please try again in a moment." }, { status: 400 })
+      return NextResponse.json({ error: "YouTube is blocking this video. Try a different video or use a direct YouTube link (youtu.be)." }, { status: 400 })
     }
 
     if (stderr.includes("login") || stderr.includes("cookies") || stderr.includes("empty media response")) {
