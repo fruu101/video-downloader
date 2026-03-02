@@ -24,11 +24,23 @@ export async function getCookieFile(url?: string): Promise<string | null> {
   }
 
   for (const config of COOKIE_CONFIGS) {
-    const cookies = process.env[config.envVar]
-    if (!cookies) continue
+    const raw = process.env[config.envVar]
+    if (!raw) continue
 
     const matches = config.domains.some(d => hostname.includes(d))
     if (matches) {
+      // Decode base64 if the value doesn't look like a raw cookie file
+      let cookies: string
+      if (raw.trimStart().startsWith("#") || raw.trimStart().startsWith(".")) {
+        cookies = raw
+      } else {
+        try {
+          cookies = Buffer.from(raw, "base64").toString("utf-8")
+        } catch {
+          cookies = raw
+        }
+      }
+
       const cookiePath = join(tmpdir(), `cookies-${randomUUID()}.txt`)
       await writeFile(cookiePath, cookies, "utf-8")
       return cookiePath
