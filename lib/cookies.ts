@@ -63,6 +63,14 @@ export function cleanVideoUrl(url: string): string {
       return `https://www.youtube.com/watch?v=${videoId}`
     }
 
+    // Convert youtu.be short URLs to full youtube.com format
+    if (hostname === "youtu.be") {
+      const videoId = parsed.pathname.slice(1)
+      if (videoId) {
+        return `https://www.youtube.com/watch?v=${videoId}`
+      }
+    }
+
     return url
   } catch {
     return url
