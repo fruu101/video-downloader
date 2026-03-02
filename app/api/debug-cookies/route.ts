@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server"
 import { readFile } from "fs/promises"
+import { execFile } from "child_process"
+import { promisify } from "util"
+import { YTDLP_PATH } from "@/lib/yt-dlp"
 import { getCookieFile, cleanupCookieFile } from "@/lib/cookies"
 
+const execFileAsync = promisify(execFile)
+
 export async function GET() {
-  const testUrl = "https://www.youtube.com/watch?v=test"
+  const testUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
   let cookiePath: string | null = null
 
   try {
     const ytEnv = process.env.YOUTUBE_COOKIES
-    const igEnv = process.env.INSTAGRAM_COOKIES
 
     cookiePath = await getCookieFile(testUrl)
 
@@ -19,25 +23,48 @@ export async function GET() {
       cookieFileLines = cookieFileContent.split("\n").filter(l => l.trim() && !l.startsWith("#")).length
     }
 
+    // Actually test yt-dlp with cookies
+    let ytdlpResult = ""
+    let ytdlpError = ""
+    let ytdlpVersion = ""
+
+    try {
+      const { stdout: version } = await execFileAsync(YTDLP_PATH, ["--version"], { timeout: 5000 })
+      ytdlpVersion = version.trim()
+    } catch (e: any) {
+      ytdlpVersion = "error: " + e.message
+    }
+
+    try {
+      const args = [
+        "--dump-json",
+        "--no-download",
+        "--no-warnings",
+        "--no-check-certificates",
+        ...(cookiePath ? ["--cookies", cookiePath] : []),
+        testUrl,
+      ]
+      const { stdout } = await execFileAsync(YTDLP_PATH, args, { timeout: 30000, maxBuffer: 10 * 1024 * 1024 })
+      const info = JSON.parse(stdout)
+      ytdlpResult = `SUCCESS: ${info.title}`
+    } catch (e: any) {
+      ytdlpError = (e.stderr?.toString() || e.message || "unknown error").slice(0, 1000)
+    }
+
     await cleanupCookieFile(cookiePath)
 
     return NextResponse.json({
-      youtube: {
+      ytdlpVersion,
+      cookieInfo: {
         envVarSet: !!ytEnv,
         envVarLength: ytEnv?.length || 0,
-        startsWithHash: ytEnv?.trimStart().startsWith("#") || false,
-        startsWithDot: ytEnv?.trimStart().startsWith(".") || false,
         looksBase64: !ytEnv?.trimStart().startsWith("#") && !ytEnv?.trimStart().startsWith("."),
-        hasTabs: ytEnv?.includes("\t") || false,
         cookieFileCreated: !!cookiePath,
         cookieFileLines,
-        cookieFirstLine: cookieFileContent.split("\n")[0]?.slice(0, 50) || "",
         cookieHasTabs: cookieFileContent.includes("\t"),
       },
-      instagram: {
-        envVarSet: !!igEnv,
-        envVarLength: igEnv?.length || 0,
-      },
+      testResult: ytdlpResult || null,
+      testError: ytdlpError || null,
     })
   } catch (error: any) {
     await cleanupCookieFile(cookiePath)
