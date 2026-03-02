@@ -129,27 +129,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Check for audio-only formats
-    const audioFormats = sortedFormats
-      .filter((f: any) => {
-        const hasAudio = f.acodec && f.acodec !== "none"
-        const hasVideo = f.vcodec && f.vcodec !== "none"
-        return hasAudio && !hasVideo
-      })
-      .slice(0, 3)
-      .map((f: any) => ({
-        formatId: f.format_id,
-        quality: `${f.abr || "?"}kbps`,
-        ext: f.ext || "m4a",
-        filesize: f.filesize || f.filesize_approx || null,
-        resolution: "Audio only",
-        fps: null,
-        vcodec: "none",
-        acodec: f.acodec || "",
-        hasAudio: true,
-        hasVideo: false,
-      }))
-
     return NextResponse.json({
       success: true,
       data: {
@@ -162,7 +141,6 @@ export async function POST(req: NextRequest) {
         uploadDate: info.upload_date || null,
         description: info.description?.slice(0, 200) || null,
         videoFormats: videoFormats.slice(0, 8),
-        audioFormats,
       },
     })
   } catch (error: any) {

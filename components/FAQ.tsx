@@ -17,8 +17,8 @@ const faqs = [
     a: "Yes! VidGrab lets you choose from all available qualities including 360p, 480p, 720p, 1080p, and even 4K when available. You can select the quality that best suits your needs.",
   },
   {
-    q: "Can I download only the audio from a video?",
-    a: "Absolutely. VidGrab supports MP3 audio extraction. Just switch to the 'Audio (MP3)' option before downloading to get only the audio track.",
+    q: "What video qualities are available?",
+    a: "VidGrab offers all qualities available from the source — from 360p up to 4K. Just pick the quality you need and hit download.",
   },
   {
     q: "Do I need to install any software?",
@@ -34,7 +34,7 @@ const faqs = [
   },
   {
     q: "What format are downloaded videos in?",
-    a: "Videos are downloaded in MP4 format, which is compatible with virtually all devices and media players. Audio downloads are in MP3 format.",
+    a: "Videos are downloaded in MP4 format, which is compatible with virtually all devices and media players.",
   },
 ]
 

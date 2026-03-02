@@ -7,8 +7,6 @@ import {
   Loader2,
   ClipboardPaste,
   Play,
-  Music,
-  Film,
   AlertCircle,
   Clock,
   Eye,
@@ -18,7 +16,6 @@ import {
   Globe,
   Zap,
   Shield,
-  Headphones,
   MonitorPlay,
   ArrowRight,
 } from "lucide-react"
@@ -47,7 +44,6 @@ interface VideoInfo {
   uploadDate: string | null
   description: string | null
   videoFormats: VideoFormat[]
-  audioFormats: VideoFormat[]
 }
 
 const platforms = [
@@ -61,8 +57,11 @@ export default function Home() {
   const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selectedFormat, setSelectedFormat] = useState<string | null>(null)
-  const [downloadMode, setDownloadMode] = useState<"video" | "audio">("video")
   const [downloading, setDownloading] = useState(false)
+  const [downloadProgress, setDownloadProgress] = useState(0)
+  const [downloadPhase, setDownloadPhase] = useState<"idle" | "downloading" | "merging" | "saving" | "done">("idle")
+  const [downloadSpeed, setDownloadSpeed] = useState("")
+  const [downloadEta, setDownloadEta] = useState("")
 
   const handlePaste = async () => {
     try {
@@ -106,36 +105,154 @@ export default function Home() {
     }
   }
 
+  const formatSpeed = (bytesPerSec: number): string => {
+    if (bytesPerSec < 1024) return `${bytesPerSec.toFixed(0)} B/s`
+    if (bytesPerSec < 1024 * 1024) return `${(bytesPerSec / 1024).toFixed(1)} KB/s`
+    return `${(bytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`
+  }
+
+  const formatEta = (seconds: number): string => {
+    if (seconds < 60) return `${seconds}s`
+    const m = Math.floor(seconds / 60)
+    const s = seconds % 60
+    return `${m}m ${s}s`
+  }
+
   const handleDownload = async () => {
     if (!videoInfo) return
 
     setDownloading(true)
+    setDownloadProgress(0)
+    setDownloadPhase("downloading")
+    setDownloadSpeed("")
+    setDownloadEta("")
     setError(null)
 
     try {
-      const res = await fetch("/api/download", {
+      const selectedFmt = videoInfo.videoFormats.find((f) => f.formatId === selectedFormat)
+      const ext = selectedFmt?.ext || "mp4"
+      const sanitizedTitle = videoInfo.title.replace(/[^\w\s\-()[\]]/g, "").trim() || "video"
+      const filename = `${sanitizedTitle}.${ext}`
+
+      // Use expected filesize from info for progress tracking
+      const totalSize = selectedFmt?.filesize || 0
+
+      const res = await fetch("/api/download/proxy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           url: url.trim(),
-          formatId: downloadMode === "video" ? selectedFormat : null,
-          audioOnly: downloadMode === "audio",
+          formatId: selectedFormat,
+          filename: sanitizedTitle,
         }),
       })
 
-      const data = await res.json()
-      if (!res.ok || !data.success) {
-        setError(data.error || "Failed to get download link")
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null)
+        setError(errData?.error || "Failed to start download")
         setDownloading(false)
+        setDownloadPhase("idle")
         return
       }
 
-      // Open direct download URL in new tab
-      window.open(data.downloadUrl, "_blank")
-    } catch {
-      setError("Download failed. Please try again.")
-    } finally {
+      // Get total size from Content-Length header (server sends it now)
+      const contentLength = res.headers.get("content-length")
+      const responseSize = contentLength ? parseInt(contentLength, 10) : totalSize
+      const knownSize = responseSize || totalSize
+
+      // Stream the response with progress tracking
+      const reader = res.body?.getReader()
+
+      if (!reader) {
+        const blob = await res.blob()
+        const blobUrl = URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = blobUrl
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(blobUrl)
+        setDownloadPhase("done")
+        setDownloadProgress(100)
+        setTimeout(() => {
+          setDownloading(false)
+          setDownloadPhase("idle")
+          setDownloadProgress(0)
+        }, 3000)
+        return
+      }
+
+      const chunks: BlobPart[] = []
+      let receivedLength = 0
+      let lastTime = Date.now()
+      let lastBytes = 0
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        chunks.push(value)
+        receivedLength += value.length
+
+        // Update progress
+        if (knownSize > 0) {
+          setDownloadProgress(Math.min(99, Math.round((receivedLength / knownSize) * 100)))
+        } else {
+          setDownloadSpeed(formatFileSize(receivedLength))
+        }
+
+        // Calculate speed & ETA every second
+        const now = Date.now()
+        const elapsed = (now - lastTime) / 1000
+        if (elapsed >= 1) {
+          const bytesPerSec = (receivedLength - lastBytes) / elapsed
+          if (knownSize > 0) {
+            setDownloadSpeed(formatSpeed(bytesPerSec))
+            if (bytesPerSec > 0) {
+              const remaining = knownSize - receivedLength
+              const eta = Math.round(remaining / bytesPerSec)
+              setDownloadEta(formatEta(eta))
+            }
+          } else {
+            setDownloadSpeed(`${formatFileSize(receivedLength)} (${formatSpeed(bytesPerSec)})`)
+          }
+
+          lastTime = now
+          lastBytes = receivedLength
+        }
+      }
+
+      // Create blob and trigger browser download
+      setDownloadPhase("saving")
+      const blob = new Blob(chunks)
+      const blobUrl = URL.createObjectURL(blob)
+      // Use actual extension from server if available
+      const actualExt = res.headers.get("x-file-ext")
+      const downloadName = actualExt ? `${sanitizedTitle}.${actualExt}` : filename
+      const a = document.createElement("a")
+      a.href = blobUrl
+      a.download = downloadName
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(blobUrl)
+
+      setDownloadPhase("done")
+      setDownloadProgress(100)
+
+      setTimeout(() => {
+        setDownloading(false)
+        setDownloadPhase("idle")
+        setDownloadProgress(0)
+        setDownloadSpeed("")
+        setDownloadEta("")
+      }, 3000)
+    } catch (err: any) {
+      setError(err.message || "Download failed. Please try again.")
       setDownloading(false)
+      setDownloadPhase("idle")
+      setDownloadProgress(0)
     }
   }
 
@@ -144,8 +261,6 @@ export default function Home() {
       handleFetchInfo()
     }
   }
-
-  const currentFormats = downloadMode === "video" ? videoInfo?.videoFormats : videoInfo?.audioFormats
 
   return (
     <div className="flex flex-col">
@@ -285,28 +400,12 @@ export default function Home() {
               {/* Download Options */}
               <div className="flex flex-col lg:flex-row gap-4">
                 <div className="flex-1 rounded-xl bg-[var(--card)] border border-[var(--card-border)] p-4">
-                  {/* Format Toggle */}
-                  <div className="flex items-center gap-2 mb-4">
-                    <button
-                      onClick={() => { setDownloadMode("video"); if (videoInfo.videoFormats.length > 0) setSelectedFormat(videoInfo.videoFormats[0].formatId) }}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${downloadMode === "video" ? "bg-[var(--accent)] text-white" : "bg-white/5 text-[var(--muted)] hover:text-[var(--foreground)]"}`}
-                    >
-                      <Film className="h-4 w-4" /> Video (MP4)
-                    </button>
-                    <button
-                      onClick={() => { setDownloadMode("audio"); if (videoInfo.audioFormats.length > 0) setSelectedFormat(videoInfo.audioFormats[0].formatId) }}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${downloadMode === "audio" ? "bg-[var(--accent)] text-white" : "bg-white/5 text-[var(--muted)] hover:text-[var(--foreground)]"}`}
-                    >
-                      <Music className="h-4 w-4" /> Audio (MP3)
-                    </button>
-                  </div>
-
                   {/* Quality Options */}
-                  {currentFormats && currentFormats.length > 0 ? (
+                  {videoInfo.videoFormats.length > 0 ? (
                     <div className="space-y-2 mb-4">
                       <p className="text-xs text-[var(--muted)] font-medium uppercase tracking-wider mb-2">Select Quality</p>
                       <div className="grid gap-2">
-                        {currentFormats.map((f) => (
+                        {videoInfo.videoFormats.map((f) => (
                           <button
                             key={f.formatId}
                             onClick={() => setSelectedFormat(f.formatId)}
@@ -332,22 +431,48 @@ export default function Home() {
                     </div>
                   ) : (
                     <div className="text-center py-6 text-[var(--muted)] text-sm">
-                      {downloadMode === "audio" ? "No separate audio formats. Audio will be extracted from the best video." : "No video formats available."}
+                      No video formats available.
                     </div>
                   )}
 
-                  {/* Download Button */}
-                  <button
-                    onClick={handleDownload}
-                    disabled={downloading}
-                    className="w-full h-12 rounded-xl bg-gradient-to-r from-violet-600 to-purple-700 text-white font-semibold text-sm hover:from-violet-500 hover:to-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
-                  >
-                    {downloading ? (
-                      <><Loader2 className="h-5 w-5 animate-spin" /> Getting download link...</>
-                    ) : (
-                      <><Download className="h-5 w-5" /> Download {downloadMode === "video" ? "Video" : "Audio"}</>
-                    )}
-                  </button>
+                  {/* Download Button & Progress */}
+                  {downloading ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          {downloadPhase === "done" ? (
+                            <><Check className="h-4 w-4 text-[var(--success)]" /><span className="text-[var(--success)]">Download complete!</span></>
+                          ) : downloadPhase === "saving" ? (
+                            <><Loader2 className="h-4 w-4 animate-spin text-[var(--accent-light)]" /><span>Saving file...</span></>
+                          ) : (
+                            <><Download className="h-4 w-4 text-[var(--accent-light)]" /><span>Downloading...</span></>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 font-mono text-xs text-[var(--muted)]">
+                          {downloadPhase === "downloading" && downloadSpeed && <span>{downloadSpeed}</span>}
+                          {downloadPhase === "downloading" && downloadEta && <span>ETA {downloadEta}</span>}
+                          {downloadProgress > 0 && <span>{downloadProgress}%</span>}
+                        </div>
+                      </div>
+                      <div className="w-full h-2.5 rounded-full bg-white/5 overflow-hidden">
+                        {downloadPhase === "saving" ? (
+                          <div className="h-full rounded-full bg-gradient-to-r from-violet-600 to-purple-500 animate-pulse-glow" style={{ width: "100%" }} />
+                        ) : downloadProgress > 0 ? (
+                          <div className="h-full rounded-full bg-gradient-to-r from-violet-600 to-purple-500 transition-all duration-300 ease-out" style={{ width: `${downloadProgress}%` }} />
+                        ) : (
+                          <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-violet-600 to-purple-500 animate-[progress-slide_1.5s_ease-in-out_infinite]" />
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleDownload}
+                      className="w-full h-12 rounded-xl bg-gradient-to-r from-violet-600 to-purple-700 text-white font-semibold text-sm hover:from-violet-500 hover:to-purple-600 transition-all flex items-center justify-center gap-2"
+                    >
+                      <Download className="h-5 w-5" />
+                      Download Video
+                    </button>
+                  )}
                 </div>
 
                 {/* Ad: Rectangle sidebar */}
@@ -383,9 +508,9 @@ export default function Home() {
                 desc: "Download in 360p, 720p, 1080p, or 4K. Choose the quality you need.",
               },
               {
-                icon: <Headphones className="h-6 w-6" />,
-                title: "MP3 Audio",
-                desc: "Extract audio from any video and download as high-quality MP3.",
+                icon: <Shield className="h-6 w-6" />,
+                title: "No Limits",
+                desc: "Download unlimited videos without any daily caps or restrictions.",
               },
               {
                 icon: <Zap className="h-6 w-6" />,
@@ -419,7 +544,7 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {[
               { step: "1", title: "Paste URL", desc: "Copy the video URL from any supported website and paste it into the input field." },
-              { step: "2", title: "Select Quality", desc: "Choose your preferred quality (720p, 1080p, 4K) and format (MP4 or MP3)." },
+              { step: "2", title: "Select Quality", desc: "Choose your preferred video quality — 360p, 720p, 1080p, or 4K." },
               { step: "3", title: "Download", desc: "Click the download button and your video will be saved to your device." },
             ].map((item, i) => (
               <div key={item.step} className="relative text-center">

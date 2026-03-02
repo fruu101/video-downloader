@@ -9,7 +9,7 @@ export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
   try {
-    const { url, formatId, audioOnly } = await req.json()
+    const { url, formatId } = await req.json()
 
     if (!url) {
       return NextResponse.json({ error: "URL is required" }, { status: 400 })
@@ -23,9 +23,7 @@ export async function POST(req: NextRequest) {
 
     const args: string[] = ["--get-url", "--no-warnings", "--no-playlist"]
 
-    if (audioOnly) {
-      args.push("-f", "bestaudio/best")
-    } else if (formatId) {
+    if (formatId) {
       args.push("-f", `${formatId}/best`)
     } else {
       args.push("-f", "best")
